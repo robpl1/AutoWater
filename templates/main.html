@@ -28,32 +28,27 @@
 
 <section>
   <sidebar>
-    <h3>Status Report</h3>
-		   
-	{% for element in text_to_send %}
-	<p>{{element}} </p>
-	{% endfor %}
+    <h3> Controls</h3>
+    <p>
+       <a href="/auto/water/ON"><button id="button-on">Turn ON Plant Auto Watering</button></a>
+       <a href="/auto/water/OFF"><button id="button-off">Turn OFF Plant Auto Watering</button></a><br />
+    </p>
+    <p>
+       <a href="/"><button id="button-status">Check plants status</button></a><br />
+    </p>
+    <p>
+       <a href="/water1"><button id="button-water1">Water plant </button></a><br /><br />
+       <a href="/shutdown"><button id="button-water1">shut down system </button></a>
+    </p>
+
   </sidebar>
   
   <article>
- <p>
-   <a href="/auto/water/ON"><button id="button-on">Turn ON Plant Auto Watering</button></a>
-    <a href="/auto/water/OFF"><button id="button-off">Turn OFF Plant Auto Watering</button></a><br />
- </p>
- <p>
-    <a href="/sensor"><button id="button-status">Check plants status</button></a><br />
- </p>
- <p>
-    <a href="/water1"><button id="button-water1">Water plant 1 </button></a>
-    <a href="/water2"><button id="button-water2">Water plant 2 </button></a>
-    <a href="/water3"><button id="button-water3">Water plant 3 </button></a>
-    <a href="/water4"><button id="button-water4">Water plant 4 </button></a><br /><br />
-    <a href="/waterall"><button id="button-waterall">Water all plants </button></a>
- </p>
- <p>
-   <a href="/last_watered"><button id="button-check">Check Time Last Watered</button></a>
- </p>
-<p> <a href="/"><button id="button-refresh">Refresh page</button></a>
+    <h3>Status Report</h3>
+    {% for element in text_to_send %}
+    <p>{{element}} </p>
+    {% endfor %}
+
   </article>
 </section>
 </body>
