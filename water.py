@@ -1,31 +1,41 @@
 # External module imp
+from flask import Flask, render_template
 import RPi.GPIO as GPIO
 import datetime
 import time
 import os
 import Adafruit_ADS1x15 
 
-wet_target = 15000
-sensor_1 = 0 # these are the pin numbers on the ADS1115 board, labelled A0, A1, A2, A3
-sensor_2 = 1
-sensor_3 = 2
-sensor_4 = 3
-relay_1_pin = 31 # these are the GPIO pins attached to the relay board. Use which ones you want.
-relay_2_pin = 33
-relay_3_pin = 35
-relay_4_pin = 37
-initval = 20000 #arbitrary value to get pumping started. Moisture level will be checked every 'water_duration' seconds
-water_duration = 5 # in seconds
-delay = 1
-
+wet_target = 20000
+sensor_1 = 0                   # these are the pin numbers on the ADS1115 board, labelled A0, A1, A2, A3
+relay_1 = 8                    # these are the GPIO pins attached to the relay board. Use which ones you want.
+water_duration = 1             # in seconds
+waterfor = 5                  # in seconds
+reading_interval = 1800        # in seconds
 init = False
 
-# Create an ADS1115 ADC (16-bit) instance.
+# Create an ADS1115 ADC (16-bit) instance and choose a Gain level
 adc = Adafruit_ADS1x15.ADS1115()
 # Choose a gain of 1 for reading voltages from 0 to 4.09V.
 GAIN = 1
 
 GPIO.setmode(GPIO.BOARD) # Broadcom pin-numbering scheme
+
+file = open("/home/pi/water_log.csv", "a") #' open the file in Append mode
+if os.stat("/home/pi/water_log.csv").st_size == 0:
+    file.write("Date and Time,Reading, Pump Status\n")
+file.flush()
+file.close()
+file = open("/home/pi/infolog.csv", "a") #' open the file in Append mode
+if os.stat("/home/pi/infolog.csv").st_size == 0:
+    file.write("Date and Time,Information\n")
+file.flush()
+file.close()
+file = open("/home/pi/pumplog.csv", "a") #' open the file in Append mode
+if os.stat("/home/pi/pumplog.csv").st_size == 0:
+    file.write("Date and Time,Information, Loop Count\n")
+file.flush()
+file.close()
 
 def get_last_watered():
     try:
@@ -38,145 +48,123 @@ def init_output(pin):
     GPIO.setup(pin, GPIO.OUT)
     GPIO.output(pin, GPIO.LOW)
     GPIO.output(pin, GPIO.HIGH)
+
+def writedata(value,state):
+    now = time.strftime('%d/%m/%Y %H:%M:%S')
+    txt = now + ", sensor value: " + str(value) + ", pump state: " + state
+    print(txt)
+    file = open("/home/pi/water_log.csv", "a")
+    file.write(now + "," + str(value) + "," + state +"\n")
+    file.flush()
+    file.close()
+
+def writeinfo(info):
+    now = time.strftime('%d/%m/%Y %H:%M:%S')
+    txt = now + "," + info 
+    print(txt)
+    file = open("/home/pi/infolog.csv", "a")
+    file.write(now + ", " + info + "\n")
+    file.flush()
+    file.close()
+
+def writepumpinfo(info):
+    now = time.strftime('%d/%m/%Y %H:%M:%S')
+    txt = now + "," + info 
+    print(txt)
+    file = open("/home/pi/pumplog.csv", "a")
+    file.write(now + ", " + info + "\n")
+    file.flush()
+    file.close()
     
 def auto_water():
-    consecutive_water_count = 0
-    for i in range(31, 39, 2):
- #      print(i)
-       init_output(i)
-    print("Auto-watering! Press CTRL+C to exit")
+    init_output(relay_1)
+    values = [0]
+    count = 0
+    read_interval = reading_interval
+    print("Auto-watering! Use web page to stop")
+    writeinfo("Auto-watering started")
     try:
         while True:
           # Read the specified ADC channel using the previously set gain value.
-            values = [0]*4
-            for j in range(4):
-                values[j] = adc.read_adc(j, gain=GAIN)
-                if values[j] > dry:
-                    if j == 0:
-                        GPIO.output(relay_1_pin, GPIO.LOW)
-                    elif j == 1:
-                        GPIO.output(relay_2_pin, GPIO.LOW)
-                    elif j == 2:
-                        GPIO.output(relay_3_pin, GPIO.LOW)
-                    elif j == 3:
-                        GPIO.output(relay_4_pin, GPIO.LOW)
-                elif j == 0:
-                    GPIO.output(relay_1_pin, GPIO.HIGH)
-                elif j == 1:
-                    GPIO.output(relay_2_pin, GPIO.HIGH)
-                elif j == 2:
-                    GPIO.output(relay_3_pin, GPIO.HIGH)
-                elif j == 3:
-                    GPIO.output(relay_4_pin, GPIO.HIGH)
-            time.sleep(water_duration)
+            values[sensor_1] = adc.read_adc(sensor_1, gain=GAIN)
+            if values[sensor_1] > wet_target:
+                print("Plant #" + str(sensor_1) + ", PumpPin #" + str(relay_1) + ", wet target = " + str(wet_target))
+                writedata(values[sensor_1],"On")
+                while values[sensor_1] > wet_target and count < waterfor: # Limit amount of watering to prevent overwatering. 
+                                                                    # if the plant is still dry then watering 
+                                                                    # will restart after a minute
+                    GPIO.output(relay_1, GPIO.LOW)
+                    values[sensor_1] = adc.read_adc(sensor_1, gain=GAIN)
+                    count = count + 1
+                    info = "Pumping -  Sensor value = " + str(values[sensor_1]) + ". Loop count = " + str(count)
+                    writepumpinfo(info)
+                    time.sleep(water_duration)
+                GPIO.output(relay_1, GPIO.HIGH)
+                writedata(values[sensor_1], "Off")
+                count = 0
+            else:
+                count = 0
+                now = time.strftime('%d/%m/%Y %H:%M:%S')
+             #   print(now + " running pump - off, " + str(values[sensor_1]))
+                writedata(values[sensor_1], "Off")
+                #GPIO.output(relay_1, GPIO.HIGH)
+            time.sleep(read_interval)
     except KeyboardInterrupt: # If CTRL+C is pressed, exit cleanly:
+        os.system("pkill -f auto_water.py")
+        file.flush()
+        file.close()
         GPIO.cleanup() # cleanup all GPIO
 
 def autowater_off():
-    os.system("pkill -f water.py")
-    for relay_pin in range(31, 39, 2):
-        init_output(relay_pin)
-        GPIO.output(relay_pin, GPIO.HIGH)
+    writeinfo("Auto-watering ended")
+    init_output(relay_1)
+    GPIO.output(relay_1, GPIO.HIGH)
+    os.system("pkill -f auto_water.py")
 
-def pump_on(sensor_pin, relay_pin, wet_target):
-#    print(str(sensor_pin) + " " + str(relay_pin) + " " + str(wet_target))
-    init_output(relay_pin)
-    f = open("last_watered.txt", "w")
-    timeString = time.strftime('%d/%m/%Y %H:%M:%S')
-    f.write("Last watered " + timeString)
-    f.close()
-	
+def pump_on():
+    print(str(sensor_1) + " " + str(relay_1) + " " + str(wet_target))
+    init_output(relay_1)
+    writeinfo("Pumping routine started")	
     # Read the specified ADC channel using the previously set gain value.
-    values = [0]*4
-#    print(str(sensor_pin) + " " + str(relay_pin) + " " + str(wet_target))
-    values[sensor_pin] = initval
-    while values[sensor_pin] > wet_target:
-        print(values[sensor_pin])
-        GPIO.output(relay_pin, GPIO.LOW)
-        time.sleep(water_duration)
-        values[sensor_pin] = adc.read_adc(sensor_pin, gain=GAIN)		
+    values = [0]
+    count = 0
+    values[sensor_1] = adc.read_adc(0, gain=GAIN)
+    print("Plant #" + str(sensor_1) + ", PumpPin #" + str(relay_1) + ", wet target = " + str(wet_target))
+    print("Sensor reading = " + str(values[0]))
+    if values[sensor_1] > wet_target:
+        print("Sensor reading = " + str(values[0]))
+        writedata(values[sensor_1],"On")
+        while values[sensor_1] > wet_target and count < waterfor:
+            GPIO.output(relay_1, GPIO.LOW)
+            count = count + 1
+            time.sleep(water_duration)
+            values[sensor_1] = adc.read_adc(sensor_1, gain=GAIN)		
+            info = "inside manual pump loop. Sensor value = " + str(values[sensor_1]) + ". Loop count = " + str(count)
+            writepumpinfo(info)
+        GPIO.output(relay_1, GPIO.HIGH)
+        writedata(values[sensor_1],"Off")
+        f = open("last_watered.txt", "w")
+        timeString = time.strftime('%d/%m/%Y %H:%M:%S')
+        f.write("Watered on " + timeString)
+        f.close()
+        watered = True
+    else:
+        watered = False
+        print("pump not turned on because plant is wet")
+    return watered
 
-    GPIO.output(relay_pin, GPIO.HIGH)
-    return
+def sensor_status():
+    # Read all ADC channel values in a list.
+    values = [0]
+    # Read the specified ADC channel using the previously set gain value.
+    values[0] = adc.read_adc(0, gain=GAIN)
+    print(values[0])
+    t1 = get_last_watered()    
+    if values[0] > wet_target:
+        t2 = "Water plant please!" 
+    else:
+        t2 = "Plant is happy!"
+    t3 = "Reading is " +  str(values[0])
+    
+    return t1, t2, t3;
 
-def pump_all_on():
-    f = open("last_watered.txt", "w")
-    timeString = time.strftime('%d/%m/%Y %H:%M:%S')
-    f.write("Last watered " + timeString)
-    f.close()
-    for i in range(31, 39, 2):
-#       print(i)
-       init_output(i)
-    pump0 = 1
-    pump1 = 1
-    pump2 = 1
-    pump3 = 1
-    pumps_in_use = 4
-    values = [0]*pumps_in_use
-    GPIO.output(relay_1_pin, GPIO.LOW)
-    GPIO.output(relay_2_pin, GPIO.LOW)
-    GPIO.output(relay_3_pin, GPIO.LOW)
-    GPIO.output(relay_4_pin, GPIO.LOW)
-    while pumps_in_use > 0:
-        for j in range(4):    
-            print("Pumps in use = " + str(pumps_in_use))
-            values[j] = adc.read_adc(j, gain=GAIN)  
-            print("sensor " + str(j) + ", value = " + str(values[j]) + ", target = " + str(wet_target))
-            if values[j] < wet_target:
-                if j == 0:
-                    GPIO.output(relay_1_pin, GPIO.HIGH)
-                    print("stop pump " + str(j+1))	                    
-                    if pump0 == 1: 
-                        pumps_in_use = pumps_in_use - 1
-                        pump0 = 0
-                elif j == 1:
-                    GPIO.output(relay_2_pin, GPIO.HIGH)
-                    print("stop pump " + str(j+1))
-                    if pump1 == 1: 
-                        pumps_in_use = pumps_in_use - 1
-                        pump1 = 0
-                elif j == 2:
-                    GPIO.output(relay_3_pin, GPIO.HIGH)
-                    print("stop pump " + str(j+1))
-                    if pump2 == 1: 
-                        pumps_in_use = pumps_in_use - 1
-                        pump2 = 0
-                elif j == 3:
-                    GPIO.output(relay_4_pin, GPIO.HIGH)
-                    print("stop pump " + str(j+1))
-                    if pump3 == 1: 
-                        pumps_in_use = pumps_in_use - 1
-                        pump3 = 0
-        time.sleep(2)
-    pumps_in_use = 0
-    GPIO.output(relay_1_pin, GPIO.HIGH)
-    GPIO.output(relay_2_pin, GPIO.HIGH)
-    GPIO.output(relay_3_pin, GPIO.HIGH)
-    GPIO.output(relay_4_pin, GPIO.HIGH)
-
-def sensor_status(m1, m2, m3, m4):
-    # Read all four ADC channel values in a list.
-    values = [0]*4
-    for i in range(4):
-        # Read the specified ADC channel using the previously set gain value.
-        values[i] = adc.read_adc(i, gain=GAIN)
-        if values[i] > wet_target:
-            if i == 0:
-                m1 = "Water plant 1 please! "
-            elif i==1:
-                m2 = "Water plant 2 please! "
-            elif i==2:
-                m3 = "Water plant 3 please! "
-            elif i==3:
-                m4 = "Water plant 4 please! "
-        else:
-            if i == 0:
-                m1 = "Plant 1 is happy! "
-            elif i==1:
-                m2 = "Plant 2 is happy! "
-            elif i==2:
-                m3 = "Plant 3 is happy! "
-            elif i==3:
-                m4 = "Plant 4 is happy! "
-        text = water.get_last_watered()
-    return text, m1, m2, m3, m4;
